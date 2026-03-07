@@ -106,9 +106,10 @@ class SandboxExecutor:
         Returns:
             Observables with execution results
         """
-        sandbox_dir = tempfile.mkdtemp(dir=self.base_temp_dir if os.path.exists(
-            os.path.dirname(self.base_temp_dir)) else None,
-            prefix="mantis_")
+        base = self.base_temp_dir
+        if base and not os.path.exists(base):
+            os.makedirs(base, exist_ok=True)
+        sandbox_dir = tempfile.mkdtemp(dir=base, prefix="mantis_")
 
         try:
             sandbox_path = Path(sandbox_dir)

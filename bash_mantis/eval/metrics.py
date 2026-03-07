@@ -100,8 +100,9 @@ class BashMetrics:
                     )
                     if match:
                         exec_matches += 1
-                except Exception:
-                    pass
+                except Exception as e:
+                    import sys
+                    print(f"Sandbox exec error: {e}", file=sys.stderr)
 
         return EvalResults(
             syntax_pass_rate=syntax_pass_rate,
