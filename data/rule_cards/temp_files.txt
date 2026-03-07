@@ -1,0 +1,22 @@
+RULE: Temporary File and Directory Handling
+
+Always use mktemp for temporary files and directories.
+Always clean up with a trap.
+
+CORRECT:
+  tmpfile=$(mktemp)
+  trap 'rm -f "$tmpfile"' EXIT
+  echo "data" > "$tmpfile"
+
+  tmpdir=$(mktemp -d)
+  trap 'rm -rf "$tmpdir"' EXIT
+
+INCORRECT:
+  tmpfile=/tmp/myfile.txt    # race condition, not unique
+  echo "data" > /tmp/output  # may conflict with other processes
+
+For multiple temp files:
+  tmpdir=$(mktemp -d)
+  trap 'rm -rf "$tmpdir"' EXIT
+  work="$tmpdir/work.txt"
+  output="$tmpdir/output.txt"

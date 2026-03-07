@@ -1,0 +1,25 @@
+RULE: Retry Wrapper Function
+
+Standard retry pattern with exponential backoff:
+
+retry() {
+  local max_attempts="${1:-3}"
+  local delay="${2:-1}"
+  shift 2
+  local cmd=("$@")
+  local attempt=1
+
+  while ((attempt <= max_attempts)); do
+    if "${cmd[@]}"; then
+      return 0
+    fi
+    echo "Attempt $attempt failed. Retrying in ${delay}s..." >&2
+    sleep "$delay"
+    delay=$((delay * 2))
+    attempt=$((attempt + 1))
+  done
+  echo "All $max_attempts attempts failed." >&2
+  return 1
+}
+
+Usage: retry 3 1 curl -f https://example.com/api

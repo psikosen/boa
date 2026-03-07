@@ -1,0 +1,24 @@
+RULE: Function Argument Handling
+
+Access arguments: $1, $2, ... $N
+All arguments: "$@" (preserves quoting)
+Number of arguments: $#
+Function name: ${FUNCNAME[0]}
+
+CORRECT pattern:
+  my_func() {
+    local input="$1"
+    local output="${2:-default.txt}"
+
+    if [ $# -lt 1 ]; then
+      echo "Usage: my_func <input> [output]" >&2
+      return 1
+    fi
+
+    # work with "$input" and "$output"
+  }
+
+ALWAYS use local for function variables.
+ALWAYS quote "$@" when passing arguments through.
+Use ${var:-default} for default values.
+Use ${var:?error message} for required values.

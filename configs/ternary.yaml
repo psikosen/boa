@@ -1,0 +1,19 @@
+# Stage 1: Ternary student with OFF feature distillation
+model:
+  ternary_enabled: true
+  precision_island_size: 16
+
+training:
+  stage: 1
+  max_steps: 30000
+  learning_rate: 2.0e-4
+  lambda_lm: 1.0
+  lambda_off: 0.5
+  lambda_text_align: 0.0
+  lambda_intent_bridge: 0.0
+  lambda_syntax: 0.0
+  lambda_exec: 0.0
+  lambda_attract: 0.0
+  lambda_contract: 0.0
+  lambda_equiv: 0.0
+  lambda_todo: 0.0

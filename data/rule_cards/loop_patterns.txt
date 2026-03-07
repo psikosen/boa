@@ -1,0 +1,24 @@
+RULE: Common Loop Patterns
+
+FOR loop over files:
+  for f in *.txt; do
+    [ -f "$f" ] || continue
+    echo "$f"
+  done
+
+WHILE read loop (safe):
+  while IFS= read -r line; do
+    echo "$line"
+  done < input.txt
+
+Process substitution:
+  while IFS= read -r line; do
+    echo "$line"
+  done < <(command)
+
+C-style for loop:
+  for ((i=0; i<10; i++)); do
+    echo "$i"
+  done
+
+AVOID: for f in $(command) — breaks on spaces

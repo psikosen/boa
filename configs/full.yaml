@@ -1,0 +1,25 @@
+# Stage 4-6: Full Bash-MANTIS-0.6 with all objectives
+model:
+  ternary_enabled: true
+
+training:
+  stage: 6
+  max_steps: 40000
+  learning_rate: 1.0e-4
+  lambda_lm: 1.0
+  lambda_off: 0.2
+  lambda_text_align: 0.1
+  lambda_intent_bridge: 0.15
+  lambda_syntax: 0.15
+  lambda_exec: 0.2
+  lambda_attract: 0.1
+  lambda_contract: 0.05
+  lambda_equiv: 0.1
+  lambda_todo: 0.15
+  contraction_gamma: 0.95
+  equiv_margin: 1.0
+  equiv_beta: 0.5
+
+sandbox:
+  enabled: true
+  timeout_seconds: 5
