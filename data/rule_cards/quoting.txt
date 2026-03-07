@@ -1,0 +1,18 @@
+RULE: Variable Quoting in Bash
+
+Always double-quote variable expansions to prevent word splitting and globbing.
+
+CORRECT:
+  echo "$HOME"
+  cp "$src" "$dst"
+  if [ -f "$file" ]; then
+  for f in "$@"; do
+
+INCORRECT:
+  echo $HOME
+  cp $src $dst
+  if [ -f $file ]; then
+  for f in $@; do
+
+Single quotes prevent all expansion: echo '$HOME' prints literal $HOME
+Use double quotes for variables, single quotes for literal strings.

@@ -1,0 +1,19 @@
+RULE: Redirection and Stderr Handling
+
+Redirect stderr to stdout: command 2>&1
+Redirect stderr to file: command 2>errors.log
+Redirect both: command >output.log 2>&1
+Discard stderr: command 2>/dev/null
+Discard all output: command >/dev/null 2>&1
+
+Order matters:
+  CORRECT:   command >file 2>&1    (stderr follows stdout to file)
+  INCORRECT: command 2>&1 >file    (stderr goes to terminal, stdout to file)
+
+Pipe stderr:
+  command 2>&1 | grep "error"
+
+Separate stdout and stderr:
+  command >stdout.log 2>stderr.log
+
+Append: command >>file 2>&1

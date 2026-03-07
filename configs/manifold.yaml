@@ -1,0 +1,19 @@
+# Stage 2-3: Manifold warmup + workspace integration
+model:
+  ternary_enabled: true
+
+training:
+  stage: 3
+  max_steps: 30000
+  learning_rate: 1.5e-4
+  lambda_lm: 1.0
+  lambda_off: 0.3
+  lambda_text_align: 0.0
+  lambda_intent_bridge: 0.0
+  lambda_syntax: 0.1
+  lambda_exec: 0.0
+  lambda_attract: 0.1
+  lambda_contract: 0.05
+  lambda_equiv: 0.0
+  lambda_todo: 0.0
+  contraction_gamma: 0.95
