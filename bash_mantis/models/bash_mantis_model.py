@@ -51,7 +51,7 @@ class BashMantisModel(nn.Module):
         n_heads: int = 4,
         n_layers: int = 4,
         ffn_dim: int = 256,
-        ctx_len: int = 256,
+        ctx_len: int = 512,
         dropout: float = 0.1,
         manifold_dim: int = 12,
         workspace_slots: int = 6,

@@ -28,7 +28,7 @@ class BashDataset(Dataset):
         self,
         data_path: str | Path,
         tokenizer: ByteTokenizer,
-        max_len: int = 256,
+        max_len: int = 512,
     ):
         self.tokenizer = tokenizer
         self.max_len = max_len
@@ -78,7 +78,7 @@ class MixedBashDataset(IterableDataset):
         data_dir: str | Path,
         tokenizer: ByteTokenizer,
         formatter: TaskFormatter,
-        max_len: int = 256,
+        max_len: int = 512,
         raw_bash_ratio: float = 0.40,
         nl2bash_ratio: float = 0.30,
         repair_ratio: float = 0.15,
@@ -164,7 +164,7 @@ class MixedBashDataset(IterableDataset):
 def build_dataset(
     data_dir: str | Path,
     tokenizer: ByteTokenizer,
-    max_len: int = 256,
+    max_len: int = 512,
     ratios: dict[str, float] | None = None,
 ) -> MixedBashDataset:
     """Build a mixed training dataset."""

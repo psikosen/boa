@@ -34,7 +34,7 @@ class RMSNorm(nn.Module):
 class RotaryEmbedding(nn.Module):
     """Rotary Position Embedding."""
 
-    def __init__(self, dim: int, max_seq_len: int = 256, base: float = 10000.0):
+    def __init__(self, dim: int, max_seq_len: int = 512, base: float = 10000.0):
         super().__init__()
         inv_freq = 1.0 / (base ** (torch.arange(0, dim, 2).float() / dim))
         self.register_buffer("inv_freq", inv_freq)
@@ -200,7 +200,7 @@ class TransformerBackbone(nn.Module):
         n_heads: int = 4,
         n_layers: int = 4,
         ffn_dim: int = 256,
-        ctx_len: int = 256,
+        ctx_len: int = 512,
         ternary: bool = False,
         precision_island_size: int = 16,
         dropout: float = 0.1,
