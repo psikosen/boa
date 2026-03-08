@@ -32,6 +32,10 @@ class ModelConfig:
     # Precision policy
     ternary_enabled: bool = False
     precision_island_size: int = 16  # full-precision units per block
+    # Time conditioning
+    time_conditioning: bool = True
+    # Multi-turn memory cache
+    mc_max_cached_turns: int = 32
 
 
 @dataclass
