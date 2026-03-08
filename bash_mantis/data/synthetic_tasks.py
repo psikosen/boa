@@ -80,6 +80,79 @@ FUNCTION_TEMPLATES = [
     },
 ]
 
+SCRIPT_TEMPLATES = [
+    {
+        "intent": "write a script that deletes {ext} files older than {days} days with confirmation",
+        "bash": (
+            '#!/bin/bash\nset -euo pipefail\n\n'
+            'dir="${{1:-.}}"\n'
+            'files=$(find "$dir" -type f -name "*.{ext}" -mtime +{days})\n'
+            'count=$(echo "$files" | grep -c . || true)\n\n'
+            'if [ "$count" -eq 0 ]; then\n'
+            '  echo "No .{ext} files older than {days} days."\n'
+            '  exit 0\n'
+            'fi\n\n'
+            'echo "Found $count files:"\n'
+            'echo "$files" | head -10\n\n'
+            'read -rp "Delete? [y/N] " ans\n'
+            'if [[ "$ans" =~ ^[Yy]$ ]]; then\n'
+            '  echo "$files" | xargs -d\'\\n\' rm -v\n'
+            'fi'
+        ),
+        "ext_options": ["log", "tmp", "bak", "old"],
+        "days_options": ["7", "14", "30", "90"],
+    },
+    {
+        "intent": "write a script that monitors disk usage and warns if any partition exceeds {pct}%",
+        "bash": (
+            '#!/bin/bash\nset -euo pipefail\n\n'
+            'threshold={pct}\n\n'
+            'df -h --output=pcent,target | tail -n +2 | while read -r usage mount; do\n'
+            '  pct="${{usage%%%}}"\n'
+            '  if [ "$pct" -ge "$threshold" ]; then\n'
+            '    echo "WARNING: $mount at ${{usage}}" >&2\n'
+            '  fi\n'
+            'done'
+        ),
+        "pct_options": ["80", "85", "90", "95"],
+    },
+    {
+        "intent": "write a function that archives a directory to a tar.gz with error handling",
+        "bash": (
+            'archive_dir() {{\n'
+            '  local src="$1"\n'
+            '  local dest="${{2:-$(basename "$src")-$(date +%Y%m%d).tar.gz}}"\n\n'
+            '  [ ! -d "$src" ] && {{ echo "Error: not a directory" >&2; return 1; }}\n'
+            '  [ -f "$dest" ] && {{ echo "Error: $dest exists" >&2; return 1; }}\n\n'
+            '  if tar -czf "$dest" -C "$(dirname "$src")" "$(basename "$src")"; then\n'
+            '    echo "Done: $(du -h "$dest" | cut -f1)"\n'
+            '  else\n'
+            '    rm -f "$dest"\n'
+            '    return 1\n'
+            '  fi\n'
+            '}}'
+        ),
+    },
+    {
+        "intent": "write a function that parses -n name, -o outdir, and -v verbose flags",
+        "bash": (
+            'parse_args() {{\n'
+            '  local name="" outdir="." verbose=0\n\n'
+            '  while [ $# -gt 0 ]; do\n'
+            '    case "$1" in\n'
+            '      -n|--name)   name="$2"; shift 2 ;;\n'
+            '      -o|--output) outdir="$2"; shift 2 ;;\n'
+            '      -v|--verbose) verbose=1; shift ;;\n'
+            '      *) echo "Unknown: $1" >&2; return 1 ;;\n'
+            '    esac\n'
+            '  done\n\n'
+            '  [ -z "$name" ] && {{ echo "--name required" >&2; return 1; }}\n'
+            '  echo "$name" "$outdir" "$verbose"\n'
+            '}}'
+        ),
+    },
+]
+
 REPAIR_TEMPLATES = [
     {
         "intent": "fix the script so spaces in filenames do not break it",
@@ -95,6 +168,48 @@ REPAIR_TEMPLATES = [
         "intent": "fix the pipe error handling",
         "broken": "cat file.txt | grep pattern | sort",
         "fixed": 'grep pattern file.txt | sort || echo "Error in pipeline" >&2',
+    },
+    {
+        "intent": "fix the deploy function to handle missing arguments and quote variables",
+        "broken": (
+            'deploy() {\n'
+            '  scp $1 $2:$3\n'
+            '  ssh $2 "cd $3 && ./restart.sh"\n'
+            '  echo deployed\n'
+            '}'
+        ),
+        "fixed": (
+            'deploy() {\n'
+            '  local file="${1:?Usage: deploy FILE HOST DIR}"\n'
+            '  local host="${2:?}" dir="${3:?}"\n\n'
+            '  [ ! -f "$file" ] && { echo "Not found: $file" >&2; return 1; }\n'
+            '  scp "$file" "$host":"$dir"/ || return 1\n'
+            '  ssh "$host" "cd \'$dir\' && ./restart.sh"\n'
+            '}'
+        ),
+    },
+    {
+        "intent": "fix the log rotation script that fails on empty directories",
+        "broken": (
+            '#!/bin/bash\n'
+            'cd /var/log/app\n'
+            'for f in *.log; do\n'
+            '  gzip $f\n'
+            '  mv $f.gz archive/\n'
+            'done'
+        ),
+        "fixed": (
+            '#!/bin/bash\nset -euo pipefail\n\n'
+            'logdir="/var/log/app"\n'
+            'archive="$logdir/archive"\n'
+            'mkdir -p "$archive"\n\n'
+            'shopt -s nullglob\n'
+            'for f in "$logdir"/*.log; do\n'
+            '  gzip "$f"\n'
+            '  mv "$f.gz" "$archive"/\n'
+            'done\n'
+            'shopt -u nullglob'
+        ),
     },
 ]
 
@@ -122,7 +237,10 @@ class SyntheticTaskGenerator:
 
     def generate_write_tasks(self, n: int = 100) -> list[dict]:
         """Generate NL-to-Bash write tasks."""
-        all_templates = FILE_DISCOVERY_TEMPLATES + PIPELINE_TEMPLATES + LOOP_TEMPLATES + FUNCTION_TEMPLATES
+        all_templates = (
+            FILE_DISCOVERY_TEMPLATES + PIPELINE_TEMPLATES + LOOP_TEMPLATES
+            + FUNCTION_TEMPLATES + SCRIPT_TEMPLATES
+        )
         tasks = []
         for _ in range(n):
             template = self.rng.choice(all_templates)

@@ -10,6 +10,11 @@ Implements 6 persistent slots that store task entities:
 
 Each slot is a small vector updated via gated attention from the
 transformer hidden states and manifold state.
+
+Slot reads use GRM-style content-aware gating: each slot's contribution
+is weighted by a similarity score between a dedicated gate projection
+(u_t, separate from the retrieval query) and the slot content.  This
+lets the model selectively suppress irrelevant slots per-token.
 """
 
 from __future__ import annotations
@@ -20,7 +25,7 @@ import torch.nn.functional as F
 
 
 class Workspace(nn.Module):
-    """Persistent slot-based workspace with gated updates."""
+    """Persistent slot-based workspace with gated updates and GRM reads."""
 
     def __init__(
         self,
@@ -50,6 +55,11 @@ class Workspace(nn.Module):
             nn.GELU(),
             nn.Linear(slot_dim * 2, slot_dim),
         )
+
+        # --- GRM read gating ---
+        # Separate u projection for gate selection (MUST differ from the
+        # retrieval query per the paper's ablation: shared u/q → 0.0%).
+        self.read_u_proj = nn.Linear(hidden_dim, slot_dim)
 
     def init_slots(self, batch_size: int, device: torch.device) -> torch.Tensor:
         """Initialize workspace slots for a batch. Returns [B, n_slots, slot_dim]."""
@@ -95,6 +105,36 @@ class Workspace(nn.Module):
         new_slots = slots + gate * update
         return new_slots
 
+    def read(self, slots: torch.Tensor, h_t: torch.Tensor) -> torch.Tensor:
+        """GRM-gated read from workspace slots.
+
+        Each slot's contribution is weighted by the dot-product similarity
+        between a dedicated gate vector u_t (projected from h_t via a
+        *separate* projection from the retrieval query) and the slot
+        content.  This produces a per-token, content-aware pooled vector.
+
+        Args:
+            slots: [B, n_slots, slot_dim]
+            h_t: [B, hidden_dim] — current hidden state
+
+        Returns:
+            [B, slot_dim] — GRM-gated slot readout
+        """
+        # u_t is the *gate* query — separate from any retrieval query
+        u_t = self.read_u_proj(h_t)  # [B, slot_dim]
+
+        # Similarity between u_t and each slot → per-slot scalar gate
+        # slots: [B, n_slots, slot_dim], u_t: [B, 1, slot_dim]
+        gamma = torch.bmm(
+            slots, u_t.unsqueeze(-1)
+        ).squeeze(-1)  # [B, n_slots]
+        gamma = F.softmax(gamma, dim=-1)  # normalise across slots
+
+        # Weighted combination of slot contents
+        # gamma: [B, n_slots, 1] * slots: [B, n_slots, slot_dim] → sum
+        readout = (gamma.unsqueeze(-1) * slots).sum(dim=1)  # [B, slot_dim]
+        return readout
+
     def pool(self, slots: torch.Tensor) -> torch.Tensor:
-        """Pool workspace slots to a single vector. Returns [B, slot_dim]."""
+        """Pool workspace slots to a single vector (mean). Returns [B, slot_dim]."""
         return slots.mean(dim=1)

@@ -15,7 +15,7 @@ class ModelConfig:
     n_heads: int = 4
     n_layers: int = 4
     ffn_dim: int = 256
-    ctx_len: int = 256
+    ctx_len: int = 512
     dropout: float = 0.1
     # Manifold
     manifold_dim: int = 12
@@ -32,6 +32,10 @@ class ModelConfig:
     # Precision policy
     ternary_enabled: bool = False
     precision_island_size: int = 16  # full-precision units per block
+    # Time conditioning
+    time_conditioning: bool = True
+    # Multi-turn memory cache
+    mc_max_cached_turns: int = 32
 
 
 @dataclass
@@ -71,7 +75,7 @@ class TrainingConfig:
 class DataConfig:
     data_dir: str = "data/processed"
     rule_cards_dir: str = "data/rule_cards"
-    max_seq_len: int = 256
+    max_seq_len: int = 512
     # Data mixture ratios
     raw_bash_ratio: float = 0.40
     nl2bash_ratio: float = 0.30

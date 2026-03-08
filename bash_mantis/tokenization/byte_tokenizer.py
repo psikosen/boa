@@ -107,7 +107,7 @@ class ByteTokenizer:
     def batch_encode(
         self,
         texts: list[str],
-        max_len: int = 256,
+        max_len: int = 512,
         add_bos: bool = True,
         add_eos: bool = True,
     ) -> list[list[int]]:
