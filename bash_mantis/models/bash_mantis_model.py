@@ -23,6 +23,7 @@ from bash_mantis.models.lora_memory import DocToLoRA
 from bash_mantis.models.preference_head import PreferenceHead
 from bash_mantis.models.time_context import TimeContext
 from bash_mantis.models.memory_cache import MemoryCache
+from bash_mantis.models.typed_heads import TypedManifoldHeads
 
 
 @dataclass
@@ -35,6 +36,9 @@ class MantisOutput:
     slot_readout: torch.Tensor | None = None  # [B, slot_dim] GRM-gated read
     lora_A: torch.Tensor | None = None      # [B, d_model, rank]
     lora_B: torch.Tensor | None = None      # [B, rank, d_model]
+    #: Calibrated typed answers read off kappa's declared dimensions:
+    #: repair_confidence, safety_risk, completion_score, completion_confidence.
+    typed: dict[str, torch.Tensor] | None = None
 
 
 class BashMantisModel(nn.Module):
@@ -123,6 +127,9 @@ class BashMantisModel(nn.Module):
             slot_dim=workspace_slot_dim,
             max_cached_turns=mc_max_cached_turns,
         )
+
+        # 8. Calibrated typed heads over kappa's declared dimensions
+        self.typed_heads = TypedManifoldHeads()
 
     def forward(
         self,
@@ -244,6 +251,7 @@ class BashMantisModel(nn.Module):
             slot_readout=slot_readout,
             lora_A=lora_A,
             lora_B=lora_B,
+            typed=self.typed_heads(kappa),
         )
 
         if return_manifold_intermediates:

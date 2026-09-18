@@ -7,11 +7,15 @@ from __future__ import annotations
 
 import subprocess
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 
 class SyntaxChecker:
     """Validates Bash syntax using `bash -n`."""
+
+    def __init__(self, max_workers: int = 16):
+        self.max_workers = max_workers
 
     def check(self, script: str) -> bool:
         """Check if a Bash script passes syntax validation.
@@ -34,8 +38,12 @@ class SyntaxChecker:
             return False
 
     def check_batch(self, scripts: list[str]) -> list[bool]:
-        """Check syntax for a batch of scripts."""
-        return [self.check(s) for s in scripts]
+        """Check syntax for a batch of scripts, concurrently."""
+        if not scripts:
+            return []
+        workers = min(self.max_workers, len(scripts))
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            return list(pool.map(self.check, scripts))
 
     def get_errors(self, script: str) -> str:
         """Get syntax error messages from bash -n."""

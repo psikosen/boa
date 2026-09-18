@@ -1,16 +1,17 @@
 """Loss functions for Bash-MANTIS.
 
-Implements all 10 loss components:
+Implements all 11 loss components:
   1. LM loss (next-token prediction)
   2. OFF feature loss (teacher-student cosine distance)
   3. Text alignment loss (paraphrase clustering)
   4. Intent bridge loss (text-to-bash latent alignment)
   5. Syntax loss (bash -n penalty)
-  6. Execution loss (sandbox behavioral match)
+  6. Execution loss (sandbox behavioral match, weighted by failure class)
   7. Attractor loss (fixed-point stability)
   8. Contraction loss (Jacobian spectral norm)
   9. Equivalence clustering loss (behavioral equivalence in latent space)
   10. TODO preference loss (ternary win/tie/lose)
+  11. Calibration loss (typed manifold heads vs. sandbox outcomes)
 """
 
 from __future__ import annotations
@@ -35,6 +36,7 @@ class LossOutput:
     contract: torch.Tensor
     equiv: torch.Tensor
     todo: torch.Tensor
+    calib: torch.Tensor | None = None
 
 
 class BashMantisLoss(nn.Module):
@@ -52,6 +54,7 @@ class BashMantisLoss(nn.Module):
         lambda_contract: float = 0.0,
         lambda_equiv: float = 0.0,
         lambda_todo: float = 0.0,
+        lambda_calib: float = 0.0,
         contraction_gamma: float = 0.95,
         equiv_margin: float = 1.0,
         equiv_beta: float = 0.5,
@@ -68,6 +71,7 @@ class BashMantisLoss(nn.Module):
         self.lambda_contract = lambda_contract
         self.lambda_equiv = lambda_equiv
         self.lambda_todo = lambda_todo
+        self.lambda_calib = lambda_calib
         self.contraction_gamma = contraction_gamma
         self.equiv_margin = equiv_margin
         self.equiv_beta = equiv_beta
@@ -141,21 +145,69 @@ class BashMantisLoss(nn.Module):
         self,
         obs_pred: dict[str, torch.Tensor],
         obs_target: dict[str, torch.Tensor],
+        fail_weights: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Execution loss: compare observable behavior.
 
+        Weighted by failure class when ``fail_weights`` is supplied, so
+        the loss distinguishes kinds of wrongness instead of treating
+        every mismatch alike. A quoting slip and a wrong algorithm both
+        fail to match, but only one is a small correction; and a missing
+        binary in the sandbox is not the model's mistake at all and gets
+        weight 0.
+
         Args:
-            obs_pred: predicted observables {exit_code, stdout_hash, stderr_hash, fs_delta_hash}
+            obs_pred: predicted observables {exit_code, stdout_hash, ...}
             obs_target: target observables
+            fail_weights: [B] per-sample weights from
+                ``Observables.loss_weight``. Uniform if omitted.
         """
-        loss = torch.tensor(0.0, device=next(iter(obs_pred.values())).device)
+        device = next(iter(obs_pred.values())).device
+        loss = torch.tensor(0.0, device=device)
         n = 0
         for key in obs_pred:
             if key in obs_target:
-                # Binary match for hashed observables
-                loss = loss + (obs_pred[key] != obs_target[key]).float().mean()
+                mismatch = (obs_pred[key] != obs_target[key]).float()
+                if fail_weights is not None:
+                    w = fail_weights.to(device).float()
+                    denom = w.sum().clamp_min(1e-8)
+                    loss = loss + (mismatch * w).sum() / denom
+                else:
+                    loss = loss + mismatch.mean()
                 n += 1
         return loss / max(n, 1)
+
+    def calibration_loss(
+        self,
+        typed_heads: nn.Module,
+        kappa: torch.Tensor,
+        repair_target: torch.Tensor | None = None,
+        safety_target: torch.Tensor | None = None,
+        completion_target: torch.Tensor | None = None,
+        completion_idx: torch.Tensor | None = None,
+        repair_idx: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        """Calibration loss for the typed manifold heads.
+
+        Supervises kappa's declared dimensions against outcomes observed
+        in the sandbox rather than against human preference, which is
+        what makes the resulting probabilities safe to threshold on.
+
+        The ``*_idx`` tensors select which samples carry each label —
+        repair supervision only exists for fix_bash tasks, and completion
+        supervision is dropped for blameless environment failures.
+        """
+        k_completion = kappa[completion_idx] if completion_idx is not None else kappa
+        k_repair = kappa[repair_idx] if repair_idx is not None else kappa
+
+        total = torch.zeros((), device=kappa.device)
+        if completion_target is not None and completion_target.numel():
+            total = total + typed_heads.completion.loss(k_completion, completion_target)
+        if repair_target is not None and repair_target.numel():
+            total = total + typed_heads.repair.loss(k_repair, repair_target)
+        if safety_target is not None and safety_target.numel():
+            total = total + typed_heads.safety.loss(kappa, safety_target)
+        return total
 
     def attractor_loss(
         self,
@@ -256,6 +308,13 @@ class BashMantisLoss(nn.Module):
         pref_rep_a: torch.Tensor | None = None,
         pref_rep_b: torch.Tensor | None = None,
         pref_labels: torch.Tensor | None = None,
+        fail_weights: torch.Tensor | None = None,
+        typed_heads: nn.Module | None = None,
+        repair_target: torch.Tensor | None = None,
+        safety_target: torch.Tensor | None = None,
+        completion_target: torch.Tensor | None = None,
+        completion_idx: torch.Tensor | None = None,
+        repair_idx: torch.Tensor | None = None,
     ) -> LossOutput:
         """Compute all active loss components and return weighted sum."""
         device = logits.device
@@ -284,10 +343,10 @@ class BashMantisLoss(nn.Module):
         if self.lambda_syntax > 0 and syntax_valid is not None:
             l_syntax = self.syntax_loss(syntax_valid)
 
-        # 6. Execution
+        # 6. Execution (failure-class weighted)
         l_exec = zero
         if self.lambda_exec > 0 and obs_pred is not None:
-            l_exec = self.exec_loss(obs_pred, obs_target)
+            l_exec = self.exec_loss(obs_pred, obs_target, fail_weights)
 
         # 7. Attractor
         l_attract = zero
@@ -309,6 +368,19 @@ class BashMantisLoss(nn.Module):
         if self.lambda_todo > 0 and preference_head is not None and pref_rep_a is not None:
             l_todo = self.todo_loss(preference_head, pref_rep_a, pref_rep_b, pref_labels)
 
+        # 11. Calibration of the typed manifold heads
+        l_calib = zero
+        if self.lambda_calib > 0 and typed_heads is not None and kappa is not None:
+            l_calib = self.calibration_loss(
+                typed_heads,
+                kappa,
+                repair_target=repair_target,
+                safety_target=safety_target,
+                completion_target=completion_target,
+                completion_idx=completion_idx,
+                repair_idx=repair_idx,
+            )
+
         # Weighted sum
         total = (
             self.lambda_lm * l_lm
@@ -321,6 +393,7 @@ class BashMantisLoss(nn.Module):
             + self.lambda_contract * l_contract
             + self.lambda_equiv * l_equiv
             + self.lambda_todo * l_todo
+            + self.lambda_calib * l_calib
         )
 
         return LossOutput(
@@ -335,6 +408,7 @@ class BashMantisLoss(nn.Module):
             contract=l_contract,
             equiv=l_equiv,
             todo=l_todo,
+            calib=l_calib,
         )
 
     @classmethod
@@ -352,6 +426,7 @@ class BashMantisLoss(nn.Module):
             lambda_contract=tc.lambda_contract,
             lambda_equiv=tc.lambda_equiv,
             lambda_todo=tc.lambda_todo,
+            lambda_calib=getattr(tc, "lambda_calib", 0.0),
             contraction_gamma=tc.contraction_gamma,
             equiv_margin=tc.equiv_margin,
             equiv_beta=tc.equiv_beta,

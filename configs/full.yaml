@@ -16,6 +16,7 @@ training:
   lambda_contract: 0.05
   lambda_equiv: 0.1
   lambda_todo: 0.15
+  lambda_calib: 0.2
   contraction_gamma: 0.95
   equiv_margin: 1.0
   equiv_beta: 0.5

@@ -63,6 +63,7 @@ class TrainingConfig:
     lambda_contract: float = 0.0
     lambda_equiv: float = 0.0
     lambda_todo: float = 0.0
+    lambda_calib: float = 0.0
     # Contraction
     contraction_gamma: float = 0.95
     equiv_margin: float = 1.0

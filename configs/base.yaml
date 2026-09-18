@@ -42,6 +42,7 @@ training:
   lambda_contract: 0.0
   lambda_equiv: 0.0
   lambda_todo: 0.0
+  lambda_calib: 0.0
 
 data:
   data_dir: data/processed
