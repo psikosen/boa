@@ -24,6 +24,7 @@ from bash_mantis.models.preference_head import PreferenceHead
 from bash_mantis.models.time_context import TimeContext
 from bash_mantis.models.memory_cache import MemoryCache
 from bash_mantis.models.typed_heads import TypedManifoldHeads
+from bash_mantis.models.tool_gate import ToolCallGate
 
 
 @dataclass
@@ -69,6 +70,7 @@ class BashMantisModel(nn.Module):
         precision_island_size: int = 16,
         time_conditioning: bool = True,
         mc_max_cached_turns: int = 32,
+        gate_confidence_threshold: float = 0.8,
     ):
         super().__init__()
         self.d_model = d_model
@@ -130,6 +132,12 @@ class BashMantisModel(nn.Module):
 
         # 8. Calibrated typed heads over kappa's declared dimensions
         self.typed_heads = TypedManifoldHeads()
+
+        # 9. Tool-call gate (routing decision over the manifold state)
+        self.tool_gate = ToolCallGate(
+            manifold_dim=manifold_dim,
+            confidence_threshold=gate_confidence_threshold,
+        )
 
     def forward(
         self,
@@ -315,4 +323,6 @@ class BashMantisModel(nn.Module):
             precision_island_size=mc.precision_island_size,
             time_conditioning=mc.time_conditioning,
             mc_max_cached_turns=mc.mc_max_cached_turns,
+            gate_confidence_threshold=getattr(
+                mc, "gate_confidence_threshold", 0.8),
         )

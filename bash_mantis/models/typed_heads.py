@@ -240,3 +240,49 @@ def expected_calibration_error(
         ece = ece + (count / n) * (acc - conf).abs()
 
     return ece.item()
+
+
+class ChoiceHead(nn.Module):
+    """One-of-N decision read from the whole manifold state.
+
+    The Noul and Score heads each read a single declared dimension,
+    because a scalar through a monotone link is enough to carry a yes/no
+    or an ordered position. A Choice over N options is not orderable and
+    does not fit in one scalar, so this head projects all of kappa.
+
+    That is a real trade-off: it gives up the "this dimension means this
+    thing" guarantee the other heads have. It is worth it only because
+    routing is a genuinely N-way decision with no natural ordering --
+    "send to a human" is not between "auto-execute" and "reject".
+    """
+
+    def __init__(self, n_options: int, manifold_dim: int = 12):
+        super().__init__()
+        if n_options < 2:
+            raise ValueError("a Choice needs at least 2 options")
+        self.n_options = n_options
+        self.proj = nn.Linear(manifold_dim, n_options)
+
+    def logits(self, kappa: torch.Tensor) -> torch.Tensor:
+        """Raw per-option logits. Args: kappa [B, D] -> [B, n_options]."""
+        return self.proj(kappa)
+
+    def probabilities(self, kappa: torch.Tensor) -> torch.Tensor:
+        """Per-option probabilities. -> [B, n_options]."""
+        return F.softmax(self.logits(kappa), dim=-1)
+
+    def forward(self, kappa: torch.Tensor) -> torch.Tensor:
+        """Most likely option index. -> [B] long.
+
+        Unlike a Score, an argmax *is* the right reduction here: the
+        options are unordered, so a weighted mean would be meaningless.
+        """
+        return self.logits(kappa).argmax(dim=-1)
+
+    def confidence(self, kappa: torch.Tensor) -> torch.Tensor:
+        """Probability mass on the chosen option. -> [B]."""
+        return self.probabilities(kappa).max(dim=-1).values
+
+    def loss(self, kappa: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        """Cross-entropy against the observed routing decision."""
+        return F.cross_entropy(self.logits(kappa), targets.long())

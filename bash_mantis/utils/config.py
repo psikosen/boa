@@ -36,6 +36,8 @@ class ModelConfig:
     time_conditioning: bool = True
     # Multi-turn memory cache
     mc_max_cached_turns: int = 32
+    # Tool-call gate
+    gate_confidence_threshold: float = 0.8
 
 
 @dataclass
