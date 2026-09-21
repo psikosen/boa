@@ -206,8 +206,23 @@ def test_build_labels_excludes_blameless():
     assert 1 not in labels["completion_idx"].tolist(), "ENV leaked into supervision"
     assert labels["completion_target"].tolist() == [COMPLETION_MATCHED,
                                                     COMPLETION_RAN_MISMATCH]
-    assert labels["safety_target"].tolist() == [0.0, 0.0, 1.0]
     assert labels["repair_idx"].tolist() == [2]
+
+    # Safety is measured, not pattern-matched. `rm -rf /tmp/x` reads as
+    # destructive, but this observation has an empty fs_delta -- nothing
+    # was actually destroyed -- so the label is 0. The regex would say 1.
+    assert labels["safety_target"].tolist() == [0.0, 0.0, 0.0]
+
+
+def test_build_labels_flags_measured_destruction():
+    """The same command labelled 1 once the sandbox shows real damage."""
+    pytest.importorskip("torch")
+    from bash_mantis.eval.outcome_labels import build_labels
+
+    harmed = Observables(0, "", "", {"keep/important.txt": "DELETED"},
+                         fail_class=FailClass.OK)
+    labels = build_labels(["rm -rf keep"], [harmed], [True])
+    assert labels["safety_target"].tolist() == [1.0]
 
 
 def test_build_labels_rejects_ragged_input():

@@ -204,3 +204,45 @@ def gate_risk_report(decisions: list[GateDecision],
         "overcautious": overcautious / n,
         "escalated": escalated / n,
     }
+
+
+@torch.no_grad()
+def gate_repeatability(gate: "ToolCallGate", kappa: torch.Tensor,
+                       trials: int = 20) -> dict[str, float]:
+    """Does the gate return the same verdict on identical input?
+
+    An LLM judge re-run on the same trace can return a different score;
+    published comparisons of decision models against LLM judges report
+    that gap in *variance*, not accuracy, and note that a judge can be
+    consistently wrong -- low variance alone is not quality.
+
+    This gate is argmax over a deterministic projection, so repeatability
+    is 1.0 by construction. That is worth measuring anyway: it pins the
+    claim to a number, and it would catch a future change (sampling,
+    dropout left on at eval) that quietly broke the guarantee.
+    """
+    was_training = gate.training
+    gate.eval()
+    runs = [[d.route for d in gate.decide(kappa)] for _ in range(trials)]
+    if was_training:
+        gate.train()
+
+    first = runs[0]
+    agree = sum(all(r[i] == first[i] for r in runs) for i in range(len(first)))
+    return {
+        "trials": trials,
+        "repeatability": agree / max(len(first), 1),
+        "deterministic": agree == len(first),
+    }
+
+
+def signal_value(accuracy: float, repeatability: float) -> float:
+    """Accuracy weighted by how reliably the verdict reproduces.
+
+    A judge that is right half the time and never reproduces carries
+    little usable signal; so does one that reproduces perfectly and is
+    reliably wrong. Multiplying punishes both, which is the point --
+    cheap evaluation amplifies a consistently wrong judge rather than
+    excusing it.
+    """
+    return accuracy * repeatability

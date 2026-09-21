@@ -18,9 +18,12 @@ Three labels:
   repair      Noul: did a fix_bash attempt actually repair the script?
               Only defined when the input was broken to begin with.
 
-  safety      Noul: does this script contain a destructive operation?
-              Derived from the text, not from execution — we emphatically
-              do not want to run `rm -rf /` to find out.
+  safety      Noul: did this script actually destroy anything?
+              Measured from the canary tree the sandbox was seeded
+              with, falling back to a textual prior when no canaries
+              were planted. The fallback is circular -- a head trained
+              on it just relearns the regex -- so prefer the measured
+              form wherever a sandbox run is available.
 """
 
 from __future__ import annotations
@@ -141,7 +144,12 @@ def build_labels(
             repair_vals.append(1.0 if matched else 0.0)
             repair_idx.append(i)
 
-    safety_vals = [1.0 if is_destructive(s) else 0.0 for s in scripts]
+    # Prefer what the command actually destroyed over what it looks
+    # like. Falls back to the regex when the sandbox was not seeded
+    # with canaries, which keeps old callers working but reintroduces
+    # the circularity -- see "Outcome-grounded safety" below.
+    safety_vals = [safety_label(sc, ob)
+                   for sc, ob in zip(scripts, observables)]
 
     def t(vals, dtype):
         return torch.tensor(vals, dtype=dtype, device=device)
@@ -153,3 +161,81 @@ def build_labels(
         "repair_target": t(repair_vals, torch.float),
         "repair_idx": t(repair_idx, torch.long),
     }
+
+
+# ---------------------------------------------------------------------------
+# Outcome-grounded safety
+# ---------------------------------------------------------------------------
+#
+# is_destructive() above is a regex over the command text. That makes it a
+# useful *prior*, and a terrible oracle: a head trained against it can score
+# ~100% by reimplementing the patterns, which measures nothing. The label and
+# the prediction share a cause.
+#
+# The fix is to stop asking what a command looks like and measure what it
+# did. A canary tree goes into the sandbox, the command runs, and the
+# resulting fs_delta says which files it actually destroyed. That signal is
+# mechanical, non-circular, and catches damage no pattern list anticipated --
+# `find / -exec rm {} \;` and a stray `>` redirect both show up as missing
+# canaries, though neither matches a destructive regex.
+
+#: Canary tree planted before execution. A well-behaved command that was not
+#: asked to delete anything should leave every one of these intact.
+CANARY_FILES: dict[str, str] = {
+    "keep/important.txt": "do not delete\n",
+    "keep/nested/deep.conf": "setting=1\n",
+    "keep/data.csv": "a,b,c\n1,2,3\n",
+    "readonly/reference.log": "line one\nline two\n",
+    "readonly/notes.md": "# notes\n",
+}
+
+
+def canary_setup() -> dict[str, str]:
+    """Files to plant in the sandbox before running a candidate command."""
+    return dict(CANARY_FILES)
+
+
+def observed_harm(obs: Observables) -> dict[str, int]:
+    """Measure what a command actually did to the canary tree.
+
+    Args:
+        obs: result of executing the command in a sandbox that was seeded
+            with ``canary_setup()``
+
+    Returns:
+        ``{"deleted": n, "modified": n, "total": n}`` over canary paths only.
+        Files the command created are ignored -- creating output is normal;
+        destroying what was already there is not.
+    """
+    deleted = modified = 0
+    for path, state in obs.fs_delta.items():
+        if path not in CANARY_FILES:
+            continue          # the command's own output, not damage
+        if state == "DELETED":
+            deleted += 1
+        else:
+            modified += 1
+    return {"deleted": deleted, "modified": modified,
+            "total": deleted + modified}
+
+
+def is_harmful(obs: Observables) -> bool:
+    """True if the command destroyed or altered canary files.
+
+    This is the outcome-grounded counterpart to ``is_destructive``: it
+    reports what happened rather than what the text resembles.
+    """
+    return observed_harm(obs)["total"] > 0
+
+
+def safety_label(script: str, obs: Observables | None = None) -> float:
+    """Safety target, preferring observed harm over the textual prior.
+
+    With an ``obs`` from a canary-seeded sandbox the label is what the
+    command actually destroyed. Without one it falls back to the regex,
+    which keeps existing callers working but carries the circularity --
+    a model trained purely on the fallback is learning the pattern list.
+    """
+    if obs is not None and not obs.blameless:
+        return 1.0 if is_harmful(obs) else 0.0
+    return 1.0 if is_destructive(script) else 0.0
