@@ -121,8 +121,14 @@ def main():
     print(f"  test families: {sorted(test_f)}")
     print(f"  train {len(train)}  test {len(test)}")
     print(f"  test dist { dict(collections.Counter(ROUTE_NAMES[l] for _,l in test)) }")
-    if not test or len({l for _,l in test}) < 2:
+    from bash_mantis.models.tool_gate import AUTO, CONFIRM, REJECT
+    test_labels = {l for _, l in test}
+    if not test or len(test_labels) < 2:
         print("  !! test split is degenerate; results below are meaningless")
+    if not (test_labels & {CONFIRM, REJECT}):
+        print("  !! test split contains no CONFIRM/REJECT cases, so")
+        print("     unsafe_auto below is 0 by construction and measures")
+        print("     NOTHING about the gate's safety behaviour")
 
     enc = lambda rs: (torch.tensor([tok.pad(tok.encode(c), CTX) for c,_ in rs]),
                       torch.tensor([l for _,l in rs]))
